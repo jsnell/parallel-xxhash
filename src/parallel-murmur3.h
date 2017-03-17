@@ -159,7 +159,7 @@ struct murmur3 {
         __m256i h = _mm256_set1_epi32(seed);
 
         for (int i = 0; i < SizeWords; ++i) {
-            __m256i k = _mm256_load_si256((__m256i*) (keys + i * 8));
+            __m256i k = _mm256_loadu_si256((__m256i*) (keys + i * 8));
             k = _mm256_mullo_epi32(k, c1);
             k = mm256_rol32<15>(k);
             k = _mm256_mullo_epi32(k, c2);
@@ -192,7 +192,7 @@ struct murmur3 {
         }
 
         for (int i = 0; i < SizeWords; ++i) {
-            __m256i k = _mm256_load_si256((__m256i*) (keys + i * 8));
+            __m256i k = _mm256_loadu_si256((__m256i*) (keys + i * 8));
             k = _mm256_mullo_epi32(k, c1);
             k = mm256_rol32<15>(k);
             k = _mm256_mullo_epi32(k, c2);
