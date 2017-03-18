@@ -1,5 +1,5 @@
-parallel-murmur3
-----------------
+parallel-xxhash
+---------------
 
 Two implementations of the [xxHash](http:cyan4973.github.io/xxHash/)
 hash function (specifically, the 32 bit version).
