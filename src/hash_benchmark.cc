@@ -1,4 +1,5 @@
 #include "parallel-murmur3.h"
+#include "parallel-xxhash.h"
 
 #include <chrono>
 #include <cstdio>
@@ -6,6 +7,7 @@ extern "C" {
 #include "third-party/MurmurHash3.h"
 }
 #include "third-party/cityhash/city.h"
+#include "third-party/xxhash.h"
 
 #if !defined(KEY_LENGTH)
 #error "Remember to pass in a -DKEY_LENGTH"
@@ -14,8 +16,13 @@ extern "C" {
 struct test_parallel {
     __attribute__((noinline))
     void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
-        auto hash = murmur3<KEY_LENGTH>::parallel(keys, seed[0]);
-        _mm256_storeu_si256((__m256i*) res, hash);
+        auto h = hash(keys, seed[0]);
+        _mm256_storeu_si256((__m256i*) res, h);
+    }
+
+    __attribute__((noinline))
+    __m256i hash(uint32_t* keys, uint32 seed) {
+        return murmur3<KEY_LENGTH>::parallel(keys, seed);
     }
 };
 
@@ -23,9 +30,9 @@ template<int SeedCount>
 struct test_parallel_multiseed {
     __attribute__((noinline))
     void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
-         murmur3<KEY_LENGTH>::parallel_multiseed<SeedCount>(
-             keys, seed, (__m256i*) res);
-
+        // No point in playing further noinline games here.
+        murmur3<KEY_LENGTH>::parallel_multiseed<SeedCount>(
+            keys, seed, (__m256i*) res);
     }
 };
 
@@ -33,8 +40,40 @@ struct test_scalar {
     __attribute__((noinline))
     void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
         for (int i = 0; i < 8; ++i) {
-            res[i] = murmur3<KEY_LENGTH>::scalar(&keys[KEY_LENGTH * i], seed[0]);
+            res[i] = hash(&keys[KEY_LENGTH * i], seed[0]);
         }
+    }
+
+    __attribute__((noinline))
+    uint32_t hash(uint32_t* key, uint32 seed) {
+        return murmur3<KEY_LENGTH>::scalar(key, seed);
+    }
+};
+
+struct test_parallel_xxhash32 {
+    __attribute__((noinline))
+    void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
+        auto h = hash(keys, seed[0]);
+        _mm256_storeu_si256((__m256i*) res, h);
+    }
+
+    __attribute__((noinline))
+    __m256i hash(uint32_t* keys, uint32 seed) {
+        return xxhash32<KEY_LENGTH>::parallel(keys, seed);
+    }
+};
+
+struct test_scalar_xxhash32 {
+    __attribute__((noinline))
+    void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
+        for (int i = 0; i < 8; ++i) {
+            res[i] = hash(&keys[KEY_LENGTH * i], seed[0]);
+        }
+    }
+
+    __attribute__((noinline))
+    uint32_t hash(uint32_t* key, uint32 seed) {
+        return xxhash32<KEY_LENGTH>::scalar(key, seed);
     }
 };
 
@@ -70,6 +109,30 @@ struct test_cityhash32 {
             res[i] = CityHash32((const char*)
                                 &keys[KEY_LENGTH * i],
                                 4 * KEY_LENGTH);
+        }
+    }
+};
+
+struct test_xxhash32 {
+    __attribute__((noinline))
+    void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
+        for (int i = 0; i < 8; ++i) {
+            res[i] = XXH32((const char*)
+                           &keys[KEY_LENGTH * i],
+                           4 * KEY_LENGTH,
+                           i);
+        }
+    }
+};
+
+struct test_xxhash64 {
+    __attribute__((noinline))
+    void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
+        for (int i = 0; i < 8; ++i) {
+            res[i] = XXH64((const char*)
+                           &keys[KEY_LENGTH * i],
+                           4 * KEY_LENGTH,
+                           i);
         }
     }
 };
@@ -128,14 +191,18 @@ int main(void) {
 
     init_keys(rows, cols);
     bench<test_parallel>("parallel murmur3", n, cols);
+    bench<test_parallel_xxhash32>("parallel xxhash32", n, cols);
     // bench<test_parallel_multiseed<1>, 1>("parallel_multiseed<1>", n,
     //                                      cols);
     // bench<test_parallel_multiseed<2>, 2>("parallel_multiseed<2>", n,
     //                                      cols);
     // bench<test_parallel_multiseed<4>, 4>("parallel_multiseed<4>", n,
     //                                      cols);
-    bench<test_scalar>("scalar murmur3", n, rows);
-    bench<test_original>("original murmur3", n, rows);
+    // bench<test_scalar>("scalar murmur3", n, rows);
+    // bench<test_original>("original murmur3", n, rows);
+    bench<test_scalar_xxhash32>("scalar xxhash32", n, cols);
     bench<test_cityhash>("cityhash", n, rows);
     bench<test_cityhash32>("cityhash32", n, rows);
+    bench<test_xxhash32>("xxhash32", n, rows);
+    bench<test_xxhash64>("xxhash64", n, rows);
 }
