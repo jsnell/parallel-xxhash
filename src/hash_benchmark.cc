@@ -8,6 +8,7 @@ extern "C" {
 }
 #include "third-party/cityhash/city.h"
 #include "third-party/xxhash.h"
+#include "third-party/metrohash64.h"
 
 #if !defined(KEY_LENGTH)
 #error "Remember to pass in a -DKEY_LENGTH"
@@ -137,6 +138,19 @@ struct test_xxhash64 {
     }
 };
 
+struct test_metrohash64 {
+    __attribute__((noinline))
+    void run(uint32_t* keys, uint32_t* seed, uint32_t* res) {
+        for (int i = 0; i < 8; ++i) {
+            MetroHash64::Hash((const unsigned char*)
+                              &keys[KEY_LENGTH * i],
+                              4 * KEY_LENGTH,
+                              (uint8_t*) &res[i * 2],
+                              seed[0]);
+        }
+    }
+};
+
 template<typename Q, int WorkFactor=1>
 bool bench(const char* label, uint64_t n, uint32_t* keys) {
     Q tester;
@@ -202,7 +216,8 @@ int main(void) {
     // bench<test_original>("original murmur3", n, rows);
     bench<test_scalar_xxhash32>("scalar xxhash32", n, cols);
     bench<test_cityhash>("cityhash", n, rows);
-    bench<test_cityhash32>("cityhash32", n, rows);
-    bench<test_xxhash32>("xxhash32", n, rows);
+    // bench<test_cityhash32>("cityhash32", n, rows);
+    // bench<test_xxhash32>("xxhash32", n, rows);
     bench<test_xxhash64>("xxhash64", n, rows);
+    bench<test_metrohash64>("metrohash64", n, rows);
 }
