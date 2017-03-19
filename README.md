@@ -20,7 +20,9 @@ of any interest in most programs. Use these functions if:
   vs. a fast scalar hash is probably around batches of 3-4 keys).
 - You can arrange for your hash keys to be in a column-major
   order without too much pain.
-- A single 32 bit hash value is sufficient.
+- You can compile the program with -mavx2. (While there is a
+  non-avx2 fallback, there's not a lot of point to it).
+- A single 32 bit hash value per key is sufficient.
 
 The `scalar` implementation is mainly included as a fallback, for
 programs that generally use the parallel code, but have some
@@ -90,9 +92,8 @@ for each of the key / seed combinations:
 
   void example_parallel() {
       for (int s = 0; s < seed_count; ++s) {
-          __m256i hash = xxhash32<3>::parallel(cols[0], seeds[s]);
           uint32_t res[8];
-          _mm256_storeu_si256((__m256i*) res, hash);
+          __m256i hash = xxhash32<3>::parallel(cols[0], seeds[s], res);
           for (int i = 0; i < 8; ++i) {
               printf("seed=%08x, key={%u,%u,%u}, hash=%u\n",
                      seeds[s], cols[0][i], cols[1][i], cols[2][i],

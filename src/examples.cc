@@ -3,8 +3,13 @@
 // Copyright 2017 Juho Snellman, released under a MIT license
 
 #include "parallel-murmur3.h"
+#include "parallel-xxhash.h"
 
-static const uint32_t KEY_LENGTH = 3;
+#ifdef KEY_LENGTH
+#undef KEY_LENGTH
+#endif
+
+static const int KEY_LENGTH = 3;
 
 static uint32_t rows[][KEY_LENGTH] = {
     {1, 2, 3},
@@ -26,7 +31,7 @@ static uint32_t cols[][8] = {
 static uint32_t seeds[] = { 0x3afc8e77, 0x924f408d };
 static const uint32_t seed_count = sizeof(seeds) / sizeof(uint32_t);
 
-void example_scalar() {
+void example_murmur3_scalar() {
     for (int s = 0; s < seed_count; ++s) {
         for (int i = 0; i < 8; ++i) {
             uint32_t* row = rows[i];
@@ -37,11 +42,10 @@ void example_scalar() {
     }
 }
 
-void example_parallel() {
+void example_murmur3_parallel() {
     for (int s = 0; s < seed_count; ++s) {
-        __m256i hash = murmur3<3>::parallel(cols[0], seeds[s]);
         uint32_t res[8];
-        _mm256_storeu_si256((__m256i*) res, hash);
+        murmur3<3>::parallel(cols[0], seeds[s], res);
         for (int i = 0; i < 8; ++i) {
             printf("seed=%08x, key={%u,%u,%u}, hash=%u\n",
                    seeds[s], cols[0][i], cols[1][i], cols[2][i],
@@ -50,7 +54,7 @@ void example_parallel() {
     }
 }
 
-void example_parallel_multiseed() {
+void example_murmur3_parallel_multiseed() {
     __m256i hash[seed_count];
     murmur3<3>::parallel_multiseed<seed_count>(cols[0], seeds, hash);
     for (int s = 0; s < seed_count; ++s) {
@@ -64,8 +68,33 @@ void example_parallel_multiseed() {
     }
 }
 
+void example_xxhash32_scalar() {
+    for (int s = 0; s < seed_count; ++s) {
+        for (int i = 0; i < 8; ++i) {
+            uint32_t* row = rows[i];
+            uint32_t res = xxhash32<3>::scalar(row, seeds[s]);
+            printf("seed=%08x, key={%u,%u,%u}, hash=%u\n",
+                   seeds[s], row[0], row[1], row[2], res);
+        }
+    }
+}
+
+void example_xxhash32_parallel() {
+    for (int s = 0; s < seed_count; ++s) {
+        uint32_t res[8];
+        xxhash32<3>::parallel(cols[0], seeds[s], res);
+        for (int i = 0; i < 8; ++i) {
+            printf("seed=%08x, key={%u,%u,%u}, hash=%u\n",
+                   seeds[s], cols[0][i], cols[1][i], cols[2][i],
+                   res[i]);
+        }
+    }
+}
+
 int main (void) {
-    example_scalar();
-    example_parallel();
-    example_parallel_multiseed();
+    example_murmur3_scalar();
+    example_murmur3_parallel();
+    example_murmur3_parallel_multiseed();
+    example_xxhash32_scalar();
+    example_xxhash32_parallel();
 }

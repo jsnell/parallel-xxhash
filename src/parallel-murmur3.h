@@ -47,7 +47,8 @@ template<int SizeWords>
 struct murmur3 {
 
     // Compute a hash value for 8 keys of SizeWords*4 bytes each.
-    static __m256i parallel(const uint32_t* keys, uint32_t seed) {
+    static void parallel(const uint32_t* keys, uint32_t seed,
+                         uint32_t res[8]) {
         const __m256i c1 = _mm256_set1_epi32(0xcc9e2d51);
         const __m256i c2 = _mm256_set1_epi32(0x1b873593);
         __m256i h = _mm256_set1_epi32(seed);
@@ -70,7 +71,7 @@ struct murmur3 {
         // identical results to the original murmur3 code.
         h = _mm256_xor_si256(h, _mm256_set1_epi32(SizeWords * 4));
 
-        return mm256_fmix32(h);
+        _mm256_storeu_si256((__m256i*) res, mm256_fmix32(h));
     }
 
     // For each of 8 keys, compute N hash values each with a different

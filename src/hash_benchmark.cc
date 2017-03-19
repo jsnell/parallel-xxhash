@@ -23,7 +23,9 @@ struct test_parallel {
 
     __attribute__((noinline))
     __m256i hash(uint32_t* keys, uint32 seed) {
-        return murmur3<KEY_LENGTH>::parallel(keys, seed);
+        __m256i res;
+        murmur3<KEY_LENGTH>::parallel(keys, seed, (uint32_t*) &res);
+        return res;
     }
 };
 
@@ -60,7 +62,9 @@ struct test_parallel_xxhash32 {
 
     __attribute__((noinline))
     __m256i hash(uint32_t* keys, uint32 seed) {
-        return xxhash32<KEY_LENGTH>::parallel(keys, seed);
+        __m256i res;
+        xxhash32<KEY_LENGTH>::parallel(keys, seed, (uint32_t*) &res);
+        return res;
     }
 };
 

@@ -28,7 +28,9 @@
 // hash function.
 //
 // - parallel: Computing the hash values of 8 keys in parallel, using
-//   AVX2 intrinsics.
+//   AVX2 intrinsics. (There's also a version with identical semantics
+//   but plain C++, which the compiler might or might not be able to
+//   auto-vectorize.)
 // - scalar: Computing the hash value of a single key.
 //
 // These are very special purpose implementations, and will not be
@@ -43,7 +45,9 @@
 //   vs. a fast scalar hash is probably around batches of 3-4 keys).
 // - You can arrange for your hash keys to be in a column-major
 //   order without too much pain.
-// - A single 32 bit hash value is sufficient.
+// - You can compile the program with -mavx2. (While there is a
+//   non-avx2 fallback, there's not a lot of point to it).
+// - A single 32 bit hash value per key is sufficient.
 //
 // The "scalar" implementation is mainly included as a fallback, for
 // programs that generally use the parallel code, but have some
@@ -108,9 +112,8 @@
 //
 //   void example_parallel() {
 //       for (int s = 0; s < seed_count; ++s) {
-//           __m256i hash = xxhash32<3>::parallel(cols[0], seeds[s]);
 //           uint32_t res[8];
-//           _mm256_storeu_si256((__m256i*) res, hash);
+//           __m256i hash = xxhash32<3>::parallel(cols[0], seeds[s], res);
 //           for (int i = 0; i < 8; ++i) {
 //               printf("seed=%08x, key={%u,%u,%u}, hash=%u\n",
 //                      seeds[s], cols[0][i], cols[1][i], cols[2][i],
@@ -125,15 +128,17 @@
 
 #include <cstdint>
 #include <cstdio>
+#if __AVX2__
 #include <immintrin.h>
+#endif
 
 template<int SizeWords>
 struct xxhash32 {
 
+#if __AVX2__
     // Compute a hash value for 8 keys of SizeWords*4 bytes each.
-    static __m256i parallel(const uint32_t* keys, uint32_t seed) {
-        /* const __m256i c1 = _mm256_set1_epi32(0xcc9e2d51); */
-        /* const __m256i c2 = _mm256_set1_epi32(0x1b873593); */
+    static void parallel(const uint32_t* keys, uint32_t seed,
+                         uint32_t res[8]) {
         __m256i h = _mm256_set1_epi32(seed + PRIME32_5);
 
         if (SizeWords >= 4) {
@@ -142,10 +147,14 @@ struct xxhash32 {
             __m256i v3 = _mm256_set1_epi32(seed);
             __m256i v4 = _mm256_set1_epi32(seed - PRIME32_1);
             for (int i = 0; i < (SizeWords & ~3); i += 4) {
-                v1 = mm256_round(v1, _mm256_loadu_si256((__m256i*) (keys + (i + 0) * 8)));
-                v2 = mm256_round(v2, _mm256_loadu_si256((__m256i*) (keys + (i + 1) * 8)));
-                v3 = mm256_round(v3, _mm256_loadu_si256((__m256i*) (keys + (i + 2) * 8)));
-                v4 = mm256_round(v4, _mm256_loadu_si256((__m256i*) (keys + (i + 3) * 8)));
+                __m256i k1 = _mm256_loadu_si256((__m256i*) (keys + (i + 0) * 8));
+                __m256i k2 = _mm256_loadu_si256((__m256i*) (keys + (i + 1) * 8));
+                __m256i k3 = _mm256_loadu_si256((__m256i*) (keys + (i + 2) * 8));
+                __m256i k4 = _mm256_loadu_si256((__m256i*) (keys + (i + 3) * 8));
+                v1 = mm256_round(v1, k1);
+                v2 = mm256_round(v2, k2);
+                v3 = mm256_round(v3, k3);
+                v4 = mm256_round(v4, k4);
             }
 
             h = mm256_rol32<1>(v1) + mm256_rol32<7>(v2) + mm256_rol32<12>(v3) + mm256_rol32<18>(v4);
@@ -164,9 +173,65 @@ struct xxhash32 {
             h = _mm256_mullo_epi32(mm256_rol32<17>(h),
                                    _mm256_set1_epi32(PRIME32_4));
         }
-        
-        return mm256_fmix32(h);
+
+        _mm256_storeu_si256((__m256i*) res, mm256_fmix32(h));
     }
+
+#else
+
+    // This will get auto-vectorized perfectly on GCC 6 with
+    // -mavx2. It gets auto-vectorized a little bit suboptimally on
+    // GCC 4.92, and not at all on clang 3.8. So it's just a bit too
+    // fragile actually use as the main implementation.
+    static void parallel(const uint32_t* key, uint32_t seed,
+                         uint32_t res[8]) {
+#warning "No AVX2 support detected, using a fallback version instead."
+        uint32_t h[8];
+        for (int i = 0; i < 8; ++i) {
+            h[i] = seed + PRIME32_5;
+        }
+        if (SizeWords >= 4) {
+            uint32_t v1[8];
+            uint32_t v2[8];
+            uint32_t v3[8];
+            uint32_t v4[8];
+            for (int i = 0; i < 8; ++i) {
+                v1[i] = seed + PRIME32_1 + PRIME32_2;
+                v2[i] = seed + PRIME32_2;
+                v3[i] = seed + 0;
+                v4[i] = seed - PRIME32_1;
+            }
+            for (int i = 0; i < (SizeWords & ~3); i += 4) {
+                for (int j = 0; j < 8; ++j) {
+                    v1[j] = round(v1[j], key[(i + 0) * 8 + j]);
+                    v2[j] = round(v2[j], key[(i + 1) * 8 + j]);
+                    v3[j] = round(v3[j], key[(i + 2) * 8 + j]);
+                    v4[j] = round(v4[j], key[(i + 3) * 8 + j]);
+                }
+            }
+
+            for (int i = 0; i < 8; ++i) {
+                h[i] = rol32<1>(v1[i]) + rol32<7>(v2[i]) + rol32<12>(v3[i]) + rol32<18>(v4[i]);
+            }
+        }
+
+        for (int i = 0; i < 8; ++i) {
+            h[i] += 4 * SizeWords;
+        }
+
+        for (int i = -(SizeWords & 3); i < 0; ++i) {
+            for (int j = 0; j < 8; ++j) {
+                h[j] += key[SizeWords + i * 8 + j] * PRIME32_3;
+                h[j] = rol32<17>(h[j]) * PRIME32_4;
+            }
+        }
+
+        for (int i = 0; i < 8; ++i) {
+            res[i] = fmix32(h[i]);
+        }
+    }
+
+#endif // __AVX2__
 
     // Compute a 32 bit hash value for the key.
     static uint32_t scalar(uint32_t* key, uint32_t seed) {
@@ -198,6 +263,7 @@ struct xxhash32 {
     }
 
 private:
+#if __AVX2__
     static __m256i mm256_round(__m256i seed, __m256i input) {
         seed = _mm256_add_epi32(seed,
                                 _mm256_mullo_epi32(input,
@@ -223,6 +289,7 @@ private:
         return _mm256_or_si256(_mm256_slli_epi32(x, r),
                                _mm256_srli_epi32(x, 32 - r));
     }
+#endif // __AVX2__
 
     static uint32_t round(uint32_t seed, uint32_t input) {
         seed += input * PRIME32_2;
